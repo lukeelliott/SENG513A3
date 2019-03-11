@@ -1,0 +1,179 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Socket.IO chat</title>
+	<style>
+		* { margin: 0; padding: 0; box-sizing: border-box; height: 100%;}
+		body { height: 100%; font: 13px Helvetica, Arial; }
+		form { background: #000; height: 5%; padding: 3px; position: fixed; bottom: 0; width: 100%; }
+		form input { border: 0; padding: 10px; width: 90%; margin-right: .5%; }
+		form button { width: 9%; background: rgb(130, 224, 255); border: none; padding: 10px; }
+		.content { height = 100%; }
+		#messages { list-style-type: none; margin: 0; padding: 0; width: 100%;}
+		#messages li { padding: 5px 10px; height: 4%; }
+		#messages li:nth-child(odd) { background: #eee; }
+		.messageBox{ display: flex; margin-left: auto; margin-right: auto; height: 75%; overflow-y: auto; border-style: solid;}
+		.otherUsers{ height: 20%; border-style: solid; }
+		#usersName { height: 10%; }
+		#userList { height:80%; }
+		#userList li { height: 10%; }
+		#otherUsersParagraph { height: 10% }
+		
+	</style>
+  </head>
+  <body>
+	<div class="content">
+
+		<div class="otherUsers">
+			<p id="usersName"> You are chatting as: </p>
+			<b><p id="otherUsersParagraph"> Users Online: </p></b>
+			<ul id="userList"></ul>
+		</div>
+		<div class ="messageBox">
+			<ul id="messages"></ul>
+		</div>
+		<form action="">
+			<input id="m" autocomplete="off" /><button>Send</button>
+		</form>
+		<script src="/socket.io/socket.io.js"></script>
+		<script src="https://code.jquery.com/jquery-1.11.1.js"></script>
+		<script>
+			$(function () {
+				var socket = io();
+				var currentUsername = "";
+				var currentColor = "";
+				var userList = []; //keep track of everyone in the room
+				var userColors = []; //and their username colors
+				var cookiedUsername = getCookie("usernameCookie");
+				var cookiedUsernameColor = getCookie("usernameColorCookie");
+				
+				socket.emit('adduser', cookiedUsername, cookiedUsernameColor);
+				socket.emit('requestUserlist');
+				socket.emit('requestMessages');
+				$('form').submit(function(e){
+					e.preventDefault(); // prevents page reloading
+					socket.emit('chat message', $('#m').val(), currentUsername, currentColor);
+					$('#m').val(''); //clear the text field
+					return false;
+				});
+			
+				socket.on('serveUsername', function(name, color){
+					currentUsername = name;
+					currentColor = color;
+					setCookie("usernameCookie", name);
+					setCookie("usernameColorCookie", color);
+					$('#usersName').append(name);
+				});
+				
+			
+				socket.on('message received', function(msg, timestamp, nick, nickcolor){
+					var parsedtime = new Date(timestamp);
+					//following an answer on https://stackoverflow.com/questions/3552461/how-to-format-a-javascript-date
+					var datestring = ("0" + parsedtime.getHours()).slice(-2) + ":" + ("0" + parsedtime.getMinutes()).slice(-2);
+					if (nick == currentUsername) //check if the message is ours, to bold it
+					{
+						$('#messages').append($('<li>').text(datestring + " " + nick + ": " + msg).css({ 'font-weight': '700', 'color': "#"+nickcolor}));
+					} else {
+						$('#messages').append($('<li>').text(datestring + " " + nick + ": " + msg).css("color", "#"+nickcolor));
+					}
+				});
+				//TODO
+			
+				socket.on('grantMessages', function(chatTimestamps, chatNames, chatNameColors, chatMessages){
+					for (var i = 0; i < chatMessages.length; i++){
+						var parsedtime = new Date(chatTimestamps[i]);
+						//following an answer on https://stackoverflow.com/questions/3552461/how-to-format-a-javascript-date
+						var datestring = ("0" + parsedtime.getHours()).slice(-2) + ":" + ("0" + parsedtime.getMinutes()).slice(-2);
+						if (chatNames[i] == currentUsername) //check if the message is ours, to bold it
+						{
+							$('#messages').append($('<li>').text(datestring + " " + chatNames[i] + ": " + chatMessages[i]).css({ 'font-weight': '700', 'color': "#"+chatNameColors[i]}));
+						} else {
+							$('#messages').append($('<li>').text(datestring + " " + chatNames[i] + ": " + chatMessages[i]).css("color", "#"+chatNameColors[i]));
+						}
+						
+					}
+				});
+				
+				socket.on('usernameDenied', function() {
+				
+				});
+				
+				socket.on('usernameChanged', function(nick, newname) {
+					//check if this is our name change
+					if (nick == currentUsername)
+					{
+						currentUsername = newname;
+						setCookie("usernameCookie", newname);
+					}
+					//change our array
+					userList[userList.indexOf(nick)] = newname;
+					//still have to change the user list
+					var listItems = $("#userList li");
+					listItems.each(function(li) {
+						if ($(li) == nick){ //found the one
+							$(li).text(newname);
+						}
+					});
+					
+				});
+				
+				socket.on('colorChange', function(nick, proposedColor) {
+					//check if this is our color
+					if (nick == currentUsername)
+					{
+						currentColor = proposedColor;
+						setCookie("usernameColorCookie", proposedColor);
+					}
+					//change our array
+					userColors[userList.indexOf(nick)] = proposedColor;
+					
+					
+				});
+				
+				socket.on('grantUserlist', function(users, colors){
+					for (var k = 0; k < users.length; k++) {
+						userList.push(users[k]);
+						userColors.push(colors[k]);
+						console.log(users[k] + " ");
+						$('#userList').append($('<li>').css('color', colors[k]).text(users[k]));
+					}
+				});
+				
+				socket.on('userConnected', function(name){
+					if (name != currentUsername) {
+						userList.push(name);
+						userColors.push(color);
+						$('#userList').append($('<li>').text(name));
+					}
+				});
+				/*
+				socket.on('userDisconnected', function(name){
+					userList.push(name);
+					$('#userList').append($('<li>').text(name));				
+				});
+				*/
+				
+			});
+			//from https://www.w3schools.com/js/js_cookies.asp
+			function getCookie(cname) {
+				var name = cname + "=";
+				var decodedCookie = decodeURIComponent(document.cookie);
+				var ca = decodedCookie.split(';');
+				for(var i = 0; i <ca.length; i++) {
+					var c = ca[i];
+					while (c.charAt(0) == ' ') {
+						c = c.substring(1);
+					}
+					if (c.indexOf(name) == 0) {
+						return c.substring(name.length, c.length);
+					}
+				}
+				return "";
+			}
+			function setCookie(cname, cvalue) {
+				document.cookie = cname + "=" + cvalue + ";" + "path=/";
+			}
+		</script>
+	</div>
+  </body>
+</html>
